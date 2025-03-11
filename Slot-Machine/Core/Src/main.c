@@ -20,8 +20,6 @@
 #include "main.h"
 #include "cmsis_os.h"
 #include "usb_host.h"
-#include "FreeRTOS.h"
-#include "FreeRTOSConfig.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -40,6 +38,10 @@
 #define ORANGE_LED_PIN GPIO_PIN_13
 #define GREEN_LED_PIN GPIO_PIN 12
 #define BLUE_LED_PIN GPIO_PIN_15
+
+#define BUTTON_PORT      GPIOA
+#define BUTTON_PIN       GPIO_PIN_0
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -55,7 +57,12 @@ I2S_HandleTypeDef hi2s3;
 SPI_HandleTypeDef hspi1;
 
 /* Definitions for defaultTask */
-
+osThreadId_t defaultTaskHandle;
+const osThreadAttr_t defaultTask_attributes = {
+  .name = "defaultTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -137,10 +144,10 @@ int main(void)
   /* creation of defaultTask */
 //  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
-  xTaskCreate(task, "Test Task", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY +1, NULL);
-  vTaskStartScheduler();
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
+  xTaskCreate(task, "Test Task", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY +1, NULL);
+    vTaskStartScheduler();
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
@@ -148,7 +155,7 @@ int main(void)
   /* USER CODE END RTOS_EVENTS */
 
   /* Start scheduler */
-  osKernelStart();
+//  osKernelStart();
 
   /* We should never get here as control is now taken by the scheduler */
 
@@ -323,6 +330,10 @@ static void MX_GPIO_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
 /* USER CODE BEGIN MX_GPIO_Init_1 */
+//  GPIO_InitStruct.Pin = GPIO_PIN_0;
+//    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+//    GPIO_InitStruct.Pull = GPIO_NOPULL;
+//    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
@@ -365,11 +376,11 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Alternate = GPIO_AF5_SPI2;
   HAL_GPIO_Init(PDM_OUT_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : B1_Pin */
-  GPIO_InitStruct.Pin = B1_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_EVT_RISING;
+  /*Configure GPIO pin : PA0 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pin : BOOT1_Pin */
   GPIO_InitStruct.Pin = BOOT1_Pin;
@@ -415,6 +426,12 @@ static void MX_GPIO_Init(void)
 void task(void *args) {
 	for(;;) {
 		HAL_GPIO_TogglePin(LED_PORT, RED_LED_PIN);
+		if(HAL_GPIO_ReadPin(BUTTON_PORT, BUTTON_PIN) == GPIO_PIN_SET) {
+			HAL_GPIO_WritePin(LED_PORT, BLUE_LED_PIN, GPIO_PIN_SET);
+		}
+		else {
+			HAL_GPIO_WritePin(LED_PORT, BLUE_LED_PIN, GPIO_PIN_RESET);
+		}
 		vTaskDelay(250);
 	}
 }
@@ -427,18 +444,18 @@ void task(void *args) {
   * @retval None
   */
 /* USER CODE END Header_StartDefaultTask */
-//void StartDefaultTask(void *argument)
-//{
-//  /* init code for USB_HOST */
-//  MX_USB_HOST_Init();
-//  /* USER CODE BEGIN 5 */
+void StartDefaultTask(void *argument)
+{
+  /* init code for USB_HOST */
+  MX_USB_HOST_Init();
+  /* USER CODE BEGIN 5 */
 //  /* Infinite loop */
 //  for(;;)
 //  {
 //    osDelay(1);
 //  }
-//  /* USER CODE END 5 */
-//}
+  /* USER CODE END 5 */
+}
 
 /**
   * @brief  This function is executed in case of error occurrence.
