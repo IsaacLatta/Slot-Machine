@@ -1,0 +1,21 @@
+!SESSION 2025-03-11 14:53:44.873 -----------------------------------------------
+eclipse.buildId=Version 1.17.0
+java.version=21.0.3
+java.vendor=Eclipse Adoptium
+BootLoader constants: OS=linux, ARCH=x86_64, WS=gtk, NL=en_US
+Command-line arguments:  -os linux -ws gtk -arch x86_64
+
+!ENTRY com.st.stm32cube.ide.mcu.informationcenter 4 4 2025-03-11 14:54:16.220
+!MESSAGE CubeMX plugin appears to be active, Log4j initialization might be too late.
+
+!ENTRY com.st.stm32cube.ide.mcu.informationcenter 1 1 2025-03-11 14:54:16.220
+!MESSAGE Log4j2 initialized with config file /home/isaac/STM32CubeIDE/workspace_1.17.0/Slot-Machine/.metadata/.log4j2.xml
+
+!ENTRY com.st.stm32cube.ide.mcu.ide 1 1 2025-03-11 14:54:17.292
+!MESSAGE Started RMI Server, listening on port 41337
+
+!ENTRY org.eclipse.cdt.core 1 0 2025-03-11 14:58:29.634
+!MESSAGE Indexed 'TestRTOS' (22 sources, 83 headers) in 1.25 sec: 5,658 declarations; 34,812 references; 0 unresolved inclusions; 1 syntax errors; 2 unresolved names (0.0049%)
+
+!ENTRY org.eclipse.cdt.core 1 0 2025-03-11 15:03:52.347
+!MESSAGE Indexed 'Slot-Machine' (34 sources, 100 headers) in 1.42 sec: 7,831 declarations; 50,035 references; 0 unresolved inclusions; 1 syntax errors; 2 unresolved names (0.0035%)
