@@ -34,6 +34,13 @@
 /* USER CODE BEGIN PTD */
 
 typedef enum {
+	IDLE = 0,
+	SPINNING = 1,
+	COLLECTING = 2,
+	WIN = 3
+} State_t;
+
+typedef enum {
 	EVT_ANY = 0,
 	EVT_BUTTON_PRESS = 1,
 	EVT_ANIM_COMPLETE = 2
@@ -497,16 +504,21 @@ static void collectedAnimation(void* args) {
 				HAL_GPIO_WritePin(LED_PORT, LEDS[i], GPIO_PIN_SET);
 			}
 		}
-		vTaskDelay(pdMS_TO_TICKS(8000));
+		vTaskDelay(pdMS_TO_TICKS(200));
 		writeAllLeds(GPIO_PIN_RESET);
+		vTaskDelay(pdMS_TO_TICKS(500));
 	}
 }
 
 // Infinite for now
 static void winningAnimation(void* args) {
-	while(!g_stopAnimation) {
-		toggleLeds();
-		vTaskDelay(pdMS_TO_TICKS(500));
+//	while(!g_stopAnimation) {
+//		toggleLeds();
+//		vTaskDelay(pdMS_TO_TICKS(500));
+//	}
+	for(;;) {
+	writeAllLeds(GPIO_PIN_RESET);
+	vTaskDelay(pdMS_TO_TICKS(500));
 	}
 }
 
@@ -541,13 +553,49 @@ void PollButtonTask(void *args) {
 	}
 }
 
+void spin(Animation_t* anim, int* colorBit, int* winningNum) {
+	*winningNum = rand() % 4;
+	*colorBit = (1 << *winningNum);
+	anim->animation = wheelAnimation;
+	anim->args = winningNum;
+}
+
+void setNextAnimation(Animation_t* nextAnim, State_t* state, int* pCollectedMask, int* colorBit)
+{
+    switch (*state) {
+        case SPINNING:
+            if ((*pCollectedMask) & *colorBit) {
+                (*pCollectedMask) = 0;
+            } else {
+                (*pCollectedMask) |= *colorBit;
+                if (((*pCollectedMask) & 0xF) == 0xF) {
+                    *state = WIN;
+                    (*pCollectedMask) = 0;
+                    nextAnim->animation = winningAnimation;
+//                    nextAnim->args = NULL;
+                } else {
+                	*state = COLLECTING;
+                    nextAnim->animation = collectedAnimation;
+                    nextAnim->args = pCollectedMask;
+                }
+            }
+            break;
+        case COLLECTING:
+        	*state = IDLE;
+            break;
+		case WIN:
+			break;
+    }
+}
+
 void StateMachineTask(void *args) {
 	SystemEvent_t evt;
 	EventType_t next = EVT_ANY;
 	Animation_t nextAnim;
+	State_t state = IDLE;
 
 	nextAnim.animation = wheelAnimation;
-	int winning_number = 0, next_number = 0;
+	int next_number = 0;
 	nextAnim.args = &next_number;
 
 	int collectedMask = 0;
@@ -559,42 +607,22 @@ void StateMachineTask(void *args) {
 				continue; // Do not process
 			}
 
-			// Process
 			switch (evt.type) {
 			case EVT_BUTTON_PRESS:
+				state = SPINNING;
 				next = EVT_ANIM_COMPLETE;
-				next_number = rand() % 4;
-				colorBit = (1 << next_number);
-
-				nextAnim.animation = wheelAnimation;
-				nextAnim.args = &next_number;
+				spin(&nextAnim, &colorBit, &next_number);
 				xQueueSend(xAnimationQueue, &nextAnim, portMAX_DELAY);
 				break;
 			case EVT_ANIM_COMPLETE:
-				next = EVT_ANY;
-
-				if(collectedMask & colorBit) {
-//					nextAnim.animation = loseAnimation;
-					collectedMask = 0;
+				setNextAnimation(&nextAnim, &state, &collectedMask, &colorBit);
+				if (state  == WIN || state == COLLECTING) {
+					xQueueSend(xAnimationQueue, &nextAnim, portMAX_DELAY);
 				}
-				else {
-					collectedMask |= colorBit;
-					if((collectedMask) == 0xF) {
-						collectedMask = 0;
-						g_stopAnimation = 0;
-
-						nextAnim.animation = winningAnimation;
-						nextAnim.args = NULL;
-						xQueueSend(xAnimationQueue, &nextAnim, portMAX_DELAY);
-					} else {
-						g_stopAnimation = 0;
-						colorBit = 1 << next_number;
-						nextAnim.animation = collectedAnimation;
-						nextAnim.args = &collectedMask;
-						xQueueSend(xAnimationQueue, &nextAnim, portMAX_DELAY);
-					}
+				else if (state == IDLE) {
+					next = EVT_ANY;
 				}
-
+			default:
 				break;
 			}
 		}
