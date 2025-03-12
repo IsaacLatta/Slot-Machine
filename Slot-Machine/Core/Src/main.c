@@ -83,8 +83,7 @@ SPI_HandleTypeDef hspi1;
 static QueueHandle_t xEventQueue = NULL;
 static QueueHandle_t xAnimationQueue = NULL;
 static const uint16_t LEDS[4] = {GREEN_LED_PIN, ORANGE_LED_PIN, RED_LED_PIN, BLUE_LED_PIN };
-
-
+static volatile int g_stopAnimation = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -457,10 +456,16 @@ static void MX_GPIO_Init(void)
 
 // green, orange, red, blue
 
-static void shutOffLeds() {
+static void writeAllLeds(GPIO_PinState state) {
 	for(int i = 0; i < 4; ++i) {
-		HAL_GPIO_WritePin(LED_PORT, LEDS[i], GPIO_PIN_RESET);
+		HAL_GPIO_WritePin(LED_PORT, LEDS[i], state);
 	}
+}
+
+static void toggleLeds() {
+	static int toggle = 0;
+	writeAllLeds(toggle ? GPIO_PIN_SET : GPIO_PIN_RESET);
+	toggle = !toggle;
 }
 
 static void wheelAnimation(void* arg) {
@@ -472,29 +477,37 @@ static void wheelAnimation(void* arg) {
 	TickType_t delayMs = 50;
 	int current_i = 0;
 	for(int i = 0; i < totalSpins; ++i) {
-		shutOffLeds();
+		writeAllLeds(GPIO_PIN_RESET);
 
 		HAL_GPIO_WritePin(LED_PORT, LEDS[current_i], GPIO_PIN_SET);
 		vTaskDelay(pdMS_TO_TICKS(delayMs));
 		delayMs += delayMs_inc;
 		current_i = (current_i + 1) % 4;
 	}
-	shutOffLeds();
+	writeAllLeds(GPIO_PIN_RESET);
 	HAL_GPIO_WritePin(LED_PORT, LEDS[*finalIndex], GPIO_PIN_SET);
 }
 
-static void defaultAnimation(void* args) {
-	HAL_GPIO_WritePin(LED_PORT, RED_LED_PIN, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(LED_PORT, BLUE_LED_PIN, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(LED_PORT, GREEN_LED_PIN, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(LED_PORT, ORANGE_LED_PIN, GPIO_PIN_SET);
 
-	vTaskDelay(pdMS_TO_TICKS(500));
+static void collectedAnimation(void* args) {
+	int* collectedMask = (int*)args;
+	for(int j = 0; j < 4; ++j) {
+		for(int i = 0; i < 4; ++i) {
+			if(*collectedMask & (1 << i)) {
+				HAL_GPIO_WritePin(LED_PORT, LEDS[i], GPIO_PIN_SET);
+			}
+		}
+		vTaskDelay(pdMS_TO_TICKS(8000));
+		writeAllLeds(GPIO_PIN_RESET);
+	}
+}
 
-	HAL_GPIO_WritePin(LED_PORT, RED_LED_PIN, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(LED_PORT, BLUE_LED_PIN, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(LED_PORT, GREEN_LED_PIN, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(LED_PORT, ORANGE_LED_PIN, GPIO_PIN_RESET);
+// Infinite for now
+static void winningAnimation(void* args) {
+	while(!g_stopAnimation) {
+		toggleLeds();
+		vTaskDelay(pdMS_TO_TICKS(500));
+	}
 }
 
 void AnimateTask(void *args) {
@@ -517,14 +530,14 @@ void PollButtonTask(void *args) {
 	SystemEvent_t evt;
 	for(;;) {
 		if(HAL_GPIO_ReadPin(BUTTON_PORT, BUTTON_PIN) == GPIO_PIN_SET) {
-			HAL_GPIO_TogglePin(LED_PORT, BLUE_LED_PIN);
+//			HAL_GPIO_TogglePin(LED_PORT, BLUE_LED_PIN);
 			evt.type = EVT_BUTTON_PRESS;
 			evt.args = NULL;
 
 			xQueueSend(xEventQueue, &evt, 0);
 			vTaskDelay(pdMS_TO_TICKS(200)); // Debounce
 		}
-		vTaskDelay(pdMS_TO_TICKS(200));
+		vTaskDelay(pdMS_TO_TICKS(50));
 	}
 }
 
@@ -537,6 +550,9 @@ void StateMachineTask(void *args) {
 	int winning_number = 0, next_number = 0;
 	nextAnim.args = &next_number;
 
+	int collectedMask = 0;
+	int colorBit = 0;
+
 	for(;;) {
 		if(xQueueReceive(xEventQueue, &evt, portMAX_DELAY) == pdTRUE) {
 			if(next != EVT_ANY && next != evt.type) {
@@ -548,10 +564,37 @@ void StateMachineTask(void *args) {
 			case EVT_BUTTON_PRESS:
 				next = EVT_ANIM_COMPLETE;
 				next_number = rand() % 4;
+				colorBit = (1 << next_number);
+
+				nextAnim.animation = wheelAnimation;
+				nextAnim.args = &next_number;
 				xQueueSend(xAnimationQueue, &nextAnim, portMAX_DELAY);
 				break;
 			case EVT_ANIM_COMPLETE:
 				next = EVT_ANY;
+
+				if(collectedMask & colorBit) {
+//					nextAnim.animation = loseAnimation;
+					collectedMask = 0;
+				}
+				else {
+					collectedMask |= colorBit;
+					if((collectedMask) == 0xF) {
+						collectedMask = 0;
+						g_stopAnimation = 0;
+
+						nextAnim.animation = winningAnimation;
+						nextAnim.args = NULL;
+						xQueueSend(xAnimationQueue, &nextAnim, portMAX_DELAY);
+					} else {
+						g_stopAnimation = 0;
+						colorBit = 1 << next_number;
+						nextAnim.animation = collectedAnimation;
+						nextAnim.args = &collectedMask;
+						xQueueSend(xAnimationQueue, &nextAnim, portMAX_DELAY);
+					}
+				}
+
 				break;
 			}
 		}
