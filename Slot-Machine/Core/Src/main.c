@@ -37,7 +37,8 @@ typedef enum {
 	IDLE = 0,
 	SPINNING = 1,
 	COLLECTING = 2,
-	WIN = 3
+	WIN = 3,
+	LOSE = 4
 } State_t;
 
 typedef enum {
@@ -506,20 +507,35 @@ static void collectedAnimation(void* args) {
 		}
 		vTaskDelay(pdMS_TO_TICKS(200));
 		writeAllLeds(GPIO_PIN_RESET);
-		vTaskDelay(pdMS_TO_TICKS(500));
+		vTaskDelay(pdMS_TO_TICKS(200));
 	}
 }
 
-// Infinite for now
-static void winningAnimation(void* args) {
-//	while(!g_stopAnimation) {
-//		toggleLeds();
-//		vTaskDelay(pdMS_TO_TICKS(500));
-//	}
-	for(;;) {
-	writeAllLeds(GPIO_PIN_RESET);
-	vTaskDelay(pdMS_TO_TICKS(500));
+static void loseAnimation(void* args) {
+	for (int i = 0; i < 3; i++) {
+		HAL_GPIO_WritePin(LED_PORT, RED_LED_PIN, GPIO_PIN_SET);
+		vTaskDelay(pdMS_TO_TICKS(250));
+		HAL_GPIO_WritePin(LED_PORT, RED_LED_PIN, GPIO_PIN_RESET);
+		vTaskDelay(pdMS_TO_TICKS(250));
 	}
+
+	writeAllLeds(GPIO_PIN_SET);
+	vTaskDelay(pdMS_TO_TICKS(200));
+	writeAllLeds(GPIO_PIN_RESET);
+}
+
+static void winningAnimation(void* args) {
+    for (int cycle = 0; cycle < 3; cycle++) {
+        for (int i = 0; i < 4; i++) {
+            writeAllLeds(GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(LED_PORT, LEDS[i], GPIO_PIN_SET);
+            vTaskDelay(pdMS_TO_TICKS(150));
+        }
+    }
+
+    writeAllLeds(GPIO_PIN_SET);
+    vTaskDelay(pdMS_TO_TICKS(500));
+    writeAllLeds(GPIO_PIN_RESET);
 }
 
 void AnimateTask(void *args) {
@@ -542,7 +558,6 @@ void PollButtonTask(void *args) {
 	SystemEvent_t evt;
 	for(;;) {
 		if(HAL_GPIO_ReadPin(BUTTON_PORT, BUTTON_PIN) == GPIO_PIN_SET) {
-//			HAL_GPIO_TogglePin(LED_PORT, BLUE_LED_PIN);
 			evt.type = EVT_BUTTON_PRESS;
 			evt.args = NULL;
 
@@ -565,14 +580,15 @@ void setNextAnimation(Animation_t* nextAnim, State_t* state, int* pCollectedMask
     switch (*state) {
         case SPINNING:
             if ((*pCollectedMask) & *colorBit) {
-                (*pCollectedMask) = 0;
+            	*state = LOSE;
+            	(*pCollectedMask) = 0;
+            	nextAnim->animation = loseAnimation;
             } else {
                 (*pCollectedMask) |= *colorBit;
                 if (((*pCollectedMask) & 0xF) == 0xF) {
                     *state = WIN;
                     (*pCollectedMask) = 0;
                     nextAnim->animation = winningAnimation;
-//                    nextAnim->args = NULL;
                 } else {
                 	*state = COLLECTING;
                     nextAnim->animation = collectedAnimation;
@@ -580,11 +596,11 @@ void setNextAnimation(Animation_t* nextAnim, State_t* state, int* pCollectedMask
                 }
             }
             break;
+        case LOSE:
         case COLLECTING:
+        case WIN:
         	*state = IDLE;
             break;
-		case WIN:
-			break;
     }
 }
 
@@ -616,7 +632,7 @@ void StateMachineTask(void *args) {
 				break;
 			case EVT_ANIM_COMPLETE:
 				setNextAnimation(&nextAnim, &state, &collectedMask, &colorBit);
-				if (state  == WIN || state == COLLECTING) {
+				if (state  == WIN || state == COLLECTING || state == LOSE) {
 					xQueueSend(xAnimationQueue, &nextAnim, portMAX_DELAY);
 				}
 				else if (state == IDLE) {
@@ -630,26 +646,6 @@ void StateMachineTask(void *args) {
 }
 
 /* USER CODE END 4 */
-
-/* USER CODE BEGIN Header_StartDefaultTask */
-/**
-  * @brief  Function implementing the defaultTask thread.
-  * @param  argument: Not used
-  * @retval None
-  */
-/* USER CODE END Header_StartDefaultTask */
-void StartDefaultTask(void *argument)
-{
-  /* init code for USB_HOST */
-  MX_USB_HOST_Init();
-  /* USER CODE BEGIN 5 */
-//  /* Infinite loop */
-//  for(;;)
-//  {
-//    osDelay(1);
-//  }
-  /* USER CODE END 5 */
-}
 
 /**
   * @brief  This function is executed in case of error occurrence.
