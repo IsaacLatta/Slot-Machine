@@ -26,6 +26,8 @@
 #include "FreeRTOS.h"
 #include "FreeRTOSConfig.h"
 #include "queue.h"
+#include "stdlib.h"
+#include "time.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -124,8 +126,7 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-
-
+  srand((unsigned int) xTaskGetTickCount());
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -546,6 +547,7 @@ void StateMachineTask(void *args) {
 			switch (evt.type) {
 			case EVT_BUTTON_PRESS:
 				next = EVT_ANIM_COMPLETE;
+				next_number = rand() % 4;
 				xQueueSend(xAnimationQueue, &nextAnim, portMAX_DELAY);
 				break;
 			case EVT_ANIM_COMPLETE:
