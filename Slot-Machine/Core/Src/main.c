@@ -36,9 +36,7 @@
 typedef enum {
 	IDLE = 0,
 	SPINNING = 1,
-	COLLECTING = 2,
-	WIN = 3,
-	LOSE = 4
+	RESET_TO_IDLE = 2
 } State_t;
 
 typedef enum {
@@ -91,7 +89,6 @@ SPI_HandleTypeDef hspi1;
 static QueueHandle_t xEventQueue = NULL;
 static QueueHandle_t xAnimationQueue = NULL;
 static const uint16_t LEDS[4] = {GREEN_LED_PIN, ORANGE_LED_PIN, RED_LED_PIN, BLUE_LED_PIN };
-static volatile int g_stopAnimation = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -575,30 +572,26 @@ void spin(Animation_t* anim, int* colorBit, int* winningNum) {
 	anim->args = winningNum;
 }
 
-void setNextAnimation(Animation_t* nextAnim, State_t* state, int* pCollectedMask, int* colorBit)
+void setNextAnimation(Animation_t* nextAnim, State_t* state, int* collectedMask, int* colorBit)
 {
     switch (*state) {
         case SPINNING:
-            if ((*pCollectedMask) & *colorBit) {
-            	*state = LOSE;
-            	(*pCollectedMask) = 0;
+        	*state = RESET_TO_IDLE;
+            if ((*collectedMask) & *colorBit) {
+            	(*collectedMask) = 0;
             	nextAnim->animation = loseAnimation;
             } else {
-                (*pCollectedMask) |= *colorBit;
-                if (((*pCollectedMask) & 0xF) == 0xF) {
-                    *state = WIN;
-                    (*pCollectedMask) = 0;
+                (*collectedMask) |= *colorBit;
+                if (((*collectedMask) & 0xF) == 0xF) {
+                    (*collectedMask) = 0;
                     nextAnim->animation = winningAnimation;
                 } else {
-                	*state = COLLECTING;
                     nextAnim->animation = collectedAnimation;
-                    nextAnim->args = pCollectedMask;
+                    nextAnim->args = collectedMask;
                 }
             }
             break;
-        case LOSE:
-        case COLLECTING:
-        case WIN:
+        case RESET_TO_IDLE:
         	*state = IDLE;
             break;
     }
@@ -607,13 +600,12 @@ void setNextAnimation(Animation_t* nextAnim, State_t* state, int* pCollectedMask
 void StateMachineTask(void *args) {
 	SystemEvent_t evt;
 	EventType_t next = EVT_ANY;
-	Animation_t nextAnim;
 	State_t state = IDLE;
+	Animation_t nextAnim;
 
-	nextAnim.animation = wheelAnimation;
 	int next_number = 0;
+	nextAnim.animation = wheelAnimation;
 	nextAnim.args = &next_number;
-
 	int collectedMask = 0;
 	int colorBit = 0;
 
@@ -632,7 +624,7 @@ void StateMachineTask(void *args) {
 				break;
 			case EVT_ANIM_COMPLETE:
 				setNextAnimation(&nextAnim, &state, &collectedMask, &colorBit);
-				if (state  == WIN || state == COLLECTING || state == LOSE) {
+				if (state == RESET_TO_IDLE) {
 					xQueueSend(xAnimationQueue, &nextAnim, portMAX_DELAY);
 				}
 				else if (state == IDLE) {
