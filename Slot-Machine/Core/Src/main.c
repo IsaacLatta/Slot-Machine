@@ -44,6 +44,7 @@ typedef struct {
 
 typedef struct {
 	// maybe add another component here later, e.g duration
+	void* args;
 	void (*animation)(void*);
 } Animation_t;
 
@@ -75,15 +76,12 @@ I2S_HandleTypeDef hi2s3;
 SPI_HandleTypeDef hspi1;
 
 /* Definitions for defaultTask */
-osThreadId_t defaultTaskHandle;
-const osThreadAttr_t defaultTask_attributes = {
-  .name = "defaultTask",
-  .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
-};
+
 /* USER CODE BEGIN PV */
 static QueueHandle_t xEventQueue = NULL;
 static QueueHandle_t xAnimationQueue = NULL;
+static const uint16_t LEDS[4] = {GREEN_LED_PIN, ORANGE_LED_PIN, RED_LED_PIN, BLUE_LED_PIN };
+
 
 /* USER CODE END PV */
 
@@ -456,7 +454,35 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-static void animation(void* args) {
+// green, orange, red, blue
+
+static void shutOffLeds() {
+	for(int i = 0; i < 4; ++i) {
+		HAL_GPIO_WritePin(LED_PORT, LEDS[i], GPIO_PIN_RESET);
+	}
+}
+
+static void wheelAnimation(void* arg) {
+	int* finalIndex = (int*)arg;
+	const int spins = 5;
+	const int totalSpins = (spins*4) + *finalIndex + 1;
+
+	const TickType_t delayMs_inc = 20;
+	TickType_t delayMs = 50;
+	int current_i = 0;
+	for(int i = 0; i < totalSpins; ++i) {
+		shutOffLeds();
+
+		HAL_GPIO_WritePin(LED_PORT, LEDS[current_i], GPIO_PIN_SET);
+		vTaskDelay(pdMS_TO_TICKS(delayMs));
+		delayMs += delayMs_inc;
+		current_i = (current_i + 1) % 4;
+	}
+	shutOffLeds();
+	HAL_GPIO_WritePin(LED_PORT, LEDS[*finalIndex], GPIO_PIN_SET);
+}
+
+static void defaultAnimation(void* args) {
 	HAL_GPIO_WritePin(LED_PORT, RED_LED_PIN, GPIO_PIN_SET);
 	HAL_GPIO_WritePin(LED_PORT, BLUE_LED_PIN, GPIO_PIN_SET);
 	HAL_GPIO_WritePin(LED_PORT, GREEN_LED_PIN, GPIO_PIN_SET);
@@ -475,7 +501,7 @@ void AnimateTask(void *args) {
 	SystemEvent_t evt;
 	for(;;) {
 		if(xQueueReceive(xAnimationQueue, &next, portMAX_DELAY) == pdTRUE) {
-			next.animation(NULL);
+			next.animation(next.args);
 
 			evt.type = EVT_ANIM_COMPLETE;
 			evt.args = NULL;
@@ -505,7 +531,11 @@ void StateMachineTask(void *args) {
 	SystemEvent_t evt;
 	EventType_t next = EVT_ANY;
 	Animation_t nextAnim;
-	nextAnim.animation = animation;
+
+	nextAnim.animation = wheelAnimation;
+	int winning_number = 0, next_number = 0;
+	nextAnim.args = &next_number;
+
 	for(;;) {
 		if(xQueueReceive(xEventQueue, &evt, portMAX_DELAY) == pdTRUE) {
 			if(next != EVT_ANY && next != evt.type) {
