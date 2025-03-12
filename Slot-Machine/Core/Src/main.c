@@ -23,11 +23,29 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "FreeRTOS.h"
+#include "FreeRTOSConfig.h"
+#include "queue.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+
+typedef enum {
+	EVT_ANY = 0,
+	EVT_BUTTON_PRESS = 1,
+	EVT_ANIM_COMPLETE = 2
+} EventType_t;
+
+typedef struct {
+	EventType_t type;
+	void* args;
+} SystemEvent_t;
+
+typedef struct {
+	// maybe add another component here later, e.g duration
+	void (*animation)(void*);
+} Animation_t;
 
 /* USER CODE END PTD */
 
@@ -36,7 +54,7 @@
 #define LED_PORT GPIOD
 #define RED_LED_PIN GPIO_PIN_14
 #define ORANGE_LED_PIN GPIO_PIN_13
-#define GREEN_LED_PIN GPIO_PIN 12
+#define GREEN_LED_PIN GPIO_PIN_12
 #define BLUE_LED_PIN GPIO_PIN_15
 
 #define BUTTON_PORT      GPIOA
@@ -64,6 +82,8 @@ const osThreadAttr_t defaultTask_attributes = {
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* USER CODE BEGIN PV */
+static QueueHandle_t xEventQueue = NULL;
+static QueueHandle_t xAnimationQueue = NULL;
 
 /* USER CODE END PV */
 
@@ -81,7 +101,11 @@ void StartDefaultTask(void *argument);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-static void task(void* args);
+static void AnimateTask(void* args);
+
+static void PollButtonTask(void* args);
+
+static void StateMachineTask(void* args);
 
 /* USER CODE END 0 */
 
@@ -102,6 +126,7 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
+
 
   /* USER CODE END Init */
 
@@ -138,6 +163,12 @@ int main(void)
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
+
+  xEventQueue = xQueueCreate(10, sizeof(SystemEvent_t));
+  xAnimationQueue = xQueueCreate(5, sizeof(Animation_t));
+  if(xEventQueue == NULL || xAnimationQueue == NULL) {
+	  Error_Handler();
+  }
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
@@ -146,8 +177,10 @@ int main(void)
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
-  xTaskCreate(task, "Test Task", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY +1, NULL);
-    vTaskStartScheduler();
+  xTaskCreate(AnimateTask, "Animator", configMINIMAL_STACK_SIZE, 128, tskIDLE_PRIORITY +1, NULL);
+  xTaskCreate(PollButtonTask, "PollButton", configMINIMAL_STACK_SIZE, 128, tskIDLE_PRIORITY +1, NULL);
+  xTaskCreate(StateMachineTask, "HandleStateLogic", configMINIMAL_STACK_SIZE, 128, tskIDLE_PRIORITY +2, NULL);
+  vTaskStartScheduler();
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
@@ -423,18 +456,76 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-void task(void *args) {
+static void animation(void* args) {
+	HAL_GPIO_WritePin(LED_PORT, RED_LED_PIN, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(LED_PORT, BLUE_LED_PIN, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(LED_PORT, GREEN_LED_PIN, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(LED_PORT, ORANGE_LED_PIN, GPIO_PIN_SET);
+
+	vTaskDelay(pdMS_TO_TICKS(500));
+
+	HAL_GPIO_WritePin(LED_PORT, RED_LED_PIN, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(LED_PORT, BLUE_LED_PIN, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(LED_PORT, GREEN_LED_PIN, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(LED_PORT, ORANGE_LED_PIN, GPIO_PIN_RESET);
+}
+
+void AnimateTask(void *args) {
+	Animation_t next;
+	SystemEvent_t evt;
 	for(;;) {
-		HAL_GPIO_TogglePin(LED_PORT, RED_LED_PIN);
-		if(HAL_GPIO_ReadPin(BUTTON_PORT, BUTTON_PIN) == GPIO_PIN_SET) {
-			HAL_GPIO_WritePin(LED_PORT, BLUE_LED_PIN, GPIO_PIN_SET);
+		if(xQueueReceive(xAnimationQueue, &next, portMAX_DELAY) == pdTRUE) {
+			next.animation(NULL);
+
+			evt.type = EVT_ANIM_COMPLETE;
+			evt.args = NULL;
+			xQueueSend(xEventQueue, &evt, 0);
 		}
-		else {
-			HAL_GPIO_WritePin(LED_PORT, BLUE_LED_PIN, GPIO_PIN_RESET);
-		}
-		vTaskDelay(250);
+
+		vTaskDelay(pdMS_TO_TICKS(50));
 	}
 }
+
+void PollButtonTask(void *args) {
+	SystemEvent_t evt;
+	for(;;) {
+		if(HAL_GPIO_ReadPin(BUTTON_PORT, BUTTON_PIN) == GPIO_PIN_SET) {
+			HAL_GPIO_TogglePin(LED_PORT, BLUE_LED_PIN);
+			evt.type = EVT_BUTTON_PRESS;
+			evt.args = NULL;
+
+			xQueueSend(xEventQueue, &evt, 0);
+			vTaskDelay(pdMS_TO_TICKS(200)); // Debounce
+		}
+		vTaskDelay(pdMS_TO_TICKS(200));
+	}
+}
+
+void StateMachineTask(void *args) {
+	SystemEvent_t evt;
+	EventType_t next = EVT_ANY;
+	Animation_t nextAnim;
+	nextAnim.animation = animation;
+	for(;;) {
+		if(xQueueReceive(xEventQueue, &evt, portMAX_DELAY) == pdTRUE) {
+			if(next != EVT_ANY && next != evt.type) {
+				continue; // Do not process
+			}
+
+			// Process
+			switch (evt.type) {
+			case EVT_BUTTON_PRESS:
+				next = EVT_ANIM_COMPLETE;
+				xQueueSend(xAnimationQueue, &nextAnim, portMAX_DELAY);
+				break;
+			case EVT_ANIM_COMPLETE:
+				next = EVT_ANY;
+				break;
+			}
+		}
+	}
+}
+
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartDefaultTask */
@@ -468,6 +559,10 @@ void Error_Handler(void)
   __disable_irq();
   while (1)
   {
+	  HAL_GPIO_TogglePin(LED_PORT, RED_LED_PIN);
+	  HAL_GPIO_WritePin(LED_PORT, BLUE_LED_PIN, GPIO_PIN_RESET);
+	  HAL_GPIO_WritePin(LED_PORT, GREEN_LED_PIN, GPIO_PIN_RESET);
+   	  HAL_GPIO_WritePin(LED_PORT, ORANGE_LED_PIN, GPIO_PIN_RESET);
   }
   /* USER CODE END Error_Handler_Debug */
 }
