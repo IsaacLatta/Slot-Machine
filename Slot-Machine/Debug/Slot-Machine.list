@@ -446,7 +446,7 @@ int main(void)
   MX_RNG_Init();
  800057e:	f000 f92d 	bl	80007dc <MX_RNG_Init>
   /* USER CODE BEGIN 2 */
-#if DEBUG
+#ifdef DEBUG
 	srand((unsigned int) xTaskGetTickCount());
  8000582:	f00a f8cd 	bl	800a720 <xTaskGetTickCount>
  8000586:	4603      	mov	r3, r0
