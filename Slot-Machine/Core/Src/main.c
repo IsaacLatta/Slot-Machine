@@ -85,13 +85,6 @@ RNG_HandleTypeDef hrng;
 
 SPI_HandleTypeDef hspi1;
 
-/* Definitions for defaultTask */
-osThreadId_t defaultTaskHandle;
-const osThreadAttr_t defaultTask_attributes = {
-  .name = "defaultTask",
-  .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
-};
 /* USER CODE BEGIN PV */
 static QueueHandle_t xEventQueue = NULL;
 static QueueHandle_t xAnimationQueue = NULL;
@@ -105,8 +98,6 @@ static void MX_I2C1_Init(void);
 static void MX_I2S3_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_RNG_Init(void);
-void StartDefaultTask(void *argument);
-
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -160,8 +151,7 @@ int main(void)
   int32_t seed;
   if (HAL_RNG_GenerateRandomNumber(&hrng, &seed) == HAL_OK) {
 	  srand(seed);
-  }
-  else {
+  } else {
 	  Error_Handler();
   }
 #endif
@@ -192,10 +182,6 @@ int main(void)
   }
   /* USER CODE END RTOS_QUEUES */
 
-  /* Create the thread(s) */
-  /* creation of defaultTask */
-  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
-
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   xTaskCreate(AnimateTask, "Animator", configMINIMAL_STACK_SIZE, 128, tskIDLE_PRIORITY +1, NULL);
@@ -209,7 +195,6 @@ int main(void)
   /* USER CODE END RTOS_EVENTS */
 
   /* Start scheduler */
-  osKernelStart();
 
   /* We should never get here as control is now taken by the scheduler */
 
@@ -682,26 +667,6 @@ void StateMachineTask(void *args) {
 }
 
 /* USER CODE END 4 */
-
-/* USER CODE BEGIN Header_StartDefaultTask */
-/**
-  * @brief  Function implementing the defaultTask thread.
-  * @param  argument: Not used
-  * @retval None
-  */
-/* USER CODE END Header_StartDefaultTask */
-void StartDefaultTask(void *argument)
-{
-  /* init code for USB_HOST */
-  MX_USB_HOST_Init();
-  /* USER CODE BEGIN 5 */
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(1);
-  }
-  /* USER CODE END 5 */
-}
 
 /**
   * @brief  This function is executed in case of error occurrence.
