@@ -154,7 +154,7 @@ int main(void)
   MX_SPI1_Init();
   MX_RNG_Init();
   /* USER CODE BEGIN 2 */
-#if DEBUG
+#ifdef DEBUG
 	srand((unsigned int) xTaskGetTickCount());
 #else
   int32_t seed;
